@@ -47,7 +47,7 @@ def extract_meal_data(cgm_df, insulin_df):
     min_carb = valid_meals_insulin_df["BWZ Carb Input (grams)"].min()
     max_carb = valid_meals_insulin_df["BWZ Carb Input (grams)"].max()
     num_bins = np.ceil((max_carb - min_carb) / 20)
-
+    print(max_carb)
     for i in range(len(valid_meals_insulin_df)):
         meal_start_cgm = cgm_df[
             cgm_df["Datetime"] > valid_meals_insulin_df["Datetime"].iloc[i]
@@ -67,7 +67,7 @@ def extract_meal_data(cgm_df, insulin_df):
             )
         )
         bins.append(cur_meal_bin)
-
+    # print(len([i for i in bins if i == 6]))
     valid_meals_insulin_df["Bin"] = bins
     # print(len(meal_cgm_stretch))
 
@@ -144,16 +144,40 @@ def extract_meal_features(meal_matrix):
     return features
 
 
+def get_truth_matrix(num_bins, ground_truth_bins, labels):
+    matrix = []
+    # print(np.argwhere(ground_truth_bins == 0).flatten())
+    # print(np.unique(labels))
+    for i in np.unique(labels):
+        label_indices = np.argwhere(labels == i).flatten()
+        corresponding_bins = ground_truth_bins[label_indices]
+        row = [len(np.argwhere(corresponding_bins == i)) for i in range(num_bins)]
+        matrix.append(row)
+    return np.array(matrix)
+
+    pass
+
+
 def main():
     cgm_df, insulin_df = preprocess_data()
     num_bins, meal_matrix, cleaned_meals_df = extract_meal_data(cgm_df, insulin_df)
     meal_features = extract_meal_features(meal_matrix)
     ground_truth_bins = cleaned_meals_df["Bin"].to_numpy()
-    kmeans = KMeans(n_init=10,n_clusters=int(num_bins), random_state=0).fit(meal_features)
+    kmeans = KMeans(n_init=10, n_clusters=int(num_bins), random_state=0).fit(
+        meal_features
+    )
+    km_truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, kmeans.labels_)
     kmean_sse = kmeans.inertia_
-    
+
     kmeans_bins = kmeans.labels_
+    # print(ground_truth_bins)
     # print(kmeans.labels_)
+    print(km_truth_matrix)
+    # print(np.sum(km_truth_matrix))
+    # print(len(meal_features))
+
+    # print(ground_truth_bins == kmeans.labels_)
+    # print(np.sum(kmeans.labels_ == 0))
     # print(kmeans.cluster_centers_)
     # print(kmeans.inertia_)
     pca_features = KernelPCA(n_components=2).fit_transform(meal_features)
@@ -176,8 +200,29 @@ def main():
     # print(len(valid_meals_df))
     # print(len(meal_matrix))
 
-    dbscan = DBSCAN(eps=43, min_samples=7).fit(meal_features)
-    # print(dbscan.labels_)
+    # eps_values = np.arange(10, 100, 5)  # Adjust this range based on data
+    # min_samples = 4  # Adjust this value based on data dimensionality
+
+    # for eps in eps_values:
+    #     dbscan = DBSCAN(eps=eps, min_samples=min_samples).fit(meal_features)
+    #     n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
+    #     n_noise = list(dbscan.labels_).count(-1)
+    #     print(f"Eps: {eps}, Clusters: {n_clusters}, Noise Points: {n_noise}")
+
+    dbscan = DBSCAN(eps=40, min_samples=6).fit(meal_features)
+    labels = dbscan.labels_
+    dbs_truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, labels)
+    # print("-1: ", np.sum(labels == -1))
+    # print("0:  ", np.sum(labels == 0))
+    # print("1:  ", np.sum(labels == 1))
+    # print("2:  ", np.sum(labels == 2))
+    # print("3:  ", np.sum(labels == 3))
+    # print("4:  ", np.sum(labels == 4))
+    # print("5:  ", np.sum(labels == 5))
+    # print("6:  ", np.sum(labels == 6))
+    print(dbs_truth_matrix)
+
+    # print(dbscan.n_features_in_)
     # print(dbscan.components_)
 
 
