@@ -125,6 +125,8 @@ def extract_meal_features(meal_matrix):
 
         differential = np.mean(np.diff(list(meal[:23])))
         second_differential = np.mean(np.diff(np.diff(list(meal[:23]))))
+        std = np.std(meal)
+        mean = np.mean(meal)
 
         features.append(
             [
@@ -146,14 +148,14 @@ def main():
     cgm_df, insulin_df = preprocess_data()
     num_bins, meal_matrix, cleaned_meals_df = extract_meal_data(cgm_df, insulin_df)
     meal_features = extract_meal_features(meal_matrix)
-
-    kmeans = KMeans(n_clusters=int(num_bins), random_state=0).fit(meal_features)
-
     ground_truth_bins = cleaned_meals_df["Bin"].to_numpy()
+    kmeans = KMeans(n_init=10,n_clusters=int(num_bins), random_state=0).fit(meal_features)
+    kmean_sse = kmeans.inertia_
+    
     kmeans_bins = kmeans.labels_
-    print(kmeans.labels_)
-    print(kmeans.cluster_centers_)
-    print(kmeans.inertia_)
+    # print(kmeans.labels_)
+    # print(kmeans.cluster_centers_)
+    # print(kmeans.inertia_)
     pca_features = KernelPCA(n_components=2).fit_transform(meal_features)
     pca_centers = KernelPCA(n_components=2).fit_transform(kmeans.cluster_centers_)
     # print(pca_centers)
@@ -175,7 +177,7 @@ def main():
     # print(len(meal_matrix))
 
     dbscan = DBSCAN(eps=43, min_samples=7).fit(meal_features)
-    print(dbscan.labels_)
+    # print(dbscan.labels_)
     # print(dbscan.components_)
 
 
