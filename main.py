@@ -1,6 +1,11 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.fft import fft, rfft
+from sklearn.cluster import DBSCAN, KMeans
+from sklearn.decomposition import PCA, KernelPCA
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 
 def preprocess_data():
@@ -42,6 +47,7 @@ def extract_meal_data(cgm_df, insulin_df):
     min_carb = valid_meals_insulin_df["BWZ Carb Input (grams)"].min()
     max_carb = valid_meals_insulin_df["BWZ Carb Input (grams)"].max()
     num_bins = np.ceil((max_carb - min_carb) / 20)
+
     for i in range(len(valid_meals_insulin_df)):
         meal_start_cgm = cgm_df[
             cgm_df["Datetime"] > valid_meals_insulin_df["Datetime"].iloc[i]
@@ -54,13 +60,13 @@ def extract_meal_data(cgm_df, insulin_df):
                 & (cgm_df["Datetime"] < meal_stretch_end)
             ]
         )
-        curr_meal_bin = int(
+        cur_meal_bin = int(
             np.floor(
                 (valid_meals_insulin_df["BWZ Carb Input (grams)"].iloc[i] - min_carb)
                 / 20
             )
         )
-        bins.append(curr_meal_bin)
+        bins.append(cur_meal_bin)
 
     valid_meals_insulin_df["Bin"] = bins
     # print(len(meal_cgm_stretch))
@@ -102,7 +108,7 @@ def extract_meal_features(meal_matrix):
         meal_start_time = two_hour_stretch[23]
         max_cgm_after_meal_index = meal[:23].argmax()
         max_cgm_time = two_hour_stretch[max_cgm_after_meal_index]
-        time_diff = pd.Timedelta(max_cgm_time - meal_start_time).seconds
+        time_diff = pd.Timedelta(max_cgm_time - meal_start_time).seconds / 60 / 60
         time_to_max_cgm_from_meal_start.append(time_diff)
 
         max_cgm_after_meal = meal[max_cgm_after_meal_index]
@@ -138,10 +144,39 @@ def extract_meal_features(meal_matrix):
 
 def main():
     cgm_df, insulin_df = preprocess_data()
-    num_bins, meal_matrix, valid_meals_df = extract_meal_data(cgm_df, insulin_df)
+    num_bins, meal_matrix, cleaned_meals_df = extract_meal_data(cgm_df, insulin_df)
     meal_features = extract_meal_features(meal_matrix)
+
+    kmeans = KMeans(n_clusters=int(num_bins), random_state=0).fit(meal_features)
+
+    ground_truth_bins = cleaned_meals_df["Bin"].to_numpy()
+    kmeans_bins = kmeans.labels_
+    print(kmeans.labels_)
+    print(kmeans.cluster_centers_)
+    print(kmeans.inertia_)
+    pca_features = KernelPCA(n_components=2).fit_transform(meal_features)
+    pca_centers = KernelPCA(n_components=2).fit_transform(kmeans.cluster_centers_)
+    # print(pca_centers)
+    # plt.figure(figsize=(10, 8))
+    # plt.scatter(pca_features[:, 0], pca_features[:, 1], c=kmeans.labels_)
+    # plt.scatter(pca_centers[:, 0], pca_centers[:, 1], color="red", marker="x")
+    # plt.show()
+    scaled_features = StandardScaler().fit_transform(meal_features)
+    # nn = NearestNeighbors(n_neighbors=2)
+    # nbrs = nn.fit(scaled_features)
+    # distances, indices = nbrs.kneighbors(scaled_features)
+
+    # distances = np.sort(distances, axis=0)
+    # distances = distances[:, 1]
+    # plt.plot(distances)
+    # plt.show()
+
     # print(len(valid_meals_df))
     # print(len(meal_matrix))
+
+    dbscan = DBSCAN(eps=43, min_samples=7).fit(meal_features)
+    print(dbscan.labels_)
+    # print(dbscan.components_)
 
 
 if __name__ == "__main__":
