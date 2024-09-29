@@ -141,7 +141,7 @@ def extract_meal_features(meal_matrix):
             ]
         )
     # print(features[0])
-    return features
+    return np.array(features)
 
 
 def get_truth_matrix(num_bins, ground_truth_bins, labels):
@@ -149,13 +149,55 @@ def get_truth_matrix(num_bins, ground_truth_bins, labels):
     # print(np.argwhere(ground_truth_bins == 0).flatten())
     # print(np.unique(labels))
     for i in np.unique(labels):
-        label_indices = np.argwhere(labels == i).flatten()
-        corresponding_bins = ground_truth_bins[label_indices]
-        row = [len(np.argwhere(corresponding_bins == i)) for i in range(num_bins)]
-        matrix.append(row)
+        if i != -1:
+            label_indices = np.argwhere(labels == i).flatten()
+            corresponding_bins = ground_truth_bins[label_indices]
+            row = [len(np.argwhere(corresponding_bins == i)) for i in range(num_bins)]
+            matrix.append(row)
     return np.array(matrix)
 
-    pass
+
+def calc_dbscan_sse(meal_features, labels):
+    sse = 0
+    for i in np.unique(labels):
+        if i != -1:
+            label_indices = np.argwhere(labels == i).flatten()
+            cluster = meal_features[label_indices]
+            cluster_center = np.mean(cluster, axis=0)
+            distances = np.sum((cluster - cluster_center) ** 2, axis=1)
+            sse += np.sum(distances)
+    return sse
+
+
+def calc_entropy(truth_matrix):
+    num_clusters = truth_matrix.shape[1]
+    total_entropy = 0
+    for i in range(num_clusters):
+        # cluster_entropy = np.sum(-truth_matrix[:, i] * np.log2(truth_matrix[:, i]))
+        num_datapoints = np.sum(truth_matrix[i])
+        cluster_entropy = -1 * np.sum(
+            [
+                (truth_matrix[i, j] / num_datapoints)
+                * (np.log2(truth_matrix[i, j] / num_datapoints))
+                for j in range(truth_matrix.shape[0])
+                if truth_matrix[i, j] > 0
+            ]
+        )
+        total_entropy += cluster_entropy * num_datapoints
+    weighted_entropy = total_entropy / np.sum(truth_matrix)
+    return weighted_entropy
+
+
+def calc_purity(truth_matrix):
+    total_purity = 0
+    num_clusters = truth_matrix.shape[1]
+    for i in range(num_clusters):
+        num_datapoints = np.sum(truth_matrix[i])
+        cluster_purity = np.max(truth_matrix[i] / num_datapoints)
+        total_purity += cluster_purity * num_datapoints
+    weighted_purity = total_purity / np.sum(truth_matrix)
+
+    return weighted_purity
 
 
 def main():
@@ -168,11 +210,13 @@ def main():
     )
     km_truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, kmeans.labels_)
     kmean_sse = kmeans.inertia_
+    kmean_entropy = calc_entropy(km_truth_matrix)
+    kmean_purity = calc_purity(km_truth_matrix)
 
-    kmeans_bins = kmeans.labels_
     # print(ground_truth_bins)
     # print(kmeans.labels_)
-    print(km_truth_matrix)
+    print(kmean_entropy)
+    print(kmean_purity)
     # print(np.sum(km_truth_matrix))
     # print(len(meal_features))
 
@@ -212,6 +256,11 @@ def main():
     dbscan = DBSCAN(eps=40, min_samples=6).fit(meal_features)
     labels = dbscan.labels_
     dbs_truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, labels)
+    dbs_sse = calc_dbscan_sse(meal_features, labels)
+    dbs_entropy = calc_entropy(dbs_truth_matrix)
+    dbs_purity = calc_purity(dbs_truth_matrix)
+    print(dbs_entropy)
+    print(dbs_purity)
     # print("-1: ", np.sum(labels == -1))
     # print("0:  ", np.sum(labels == 0))
     # print("1:  ", np.sum(labels == 1))
@@ -220,10 +269,25 @@ def main():
     # print("4:  ", np.sum(labels == 4))
     # print("5:  ", np.sum(labels == 5))
     # print("6:  ", np.sum(labels == 6))
-    print(dbs_truth_matrix)
+    # print(">6:  ", np.sum(labels > 8))
 
     # print(dbscan.n_features_in_)
     # print(dbscan.components_)
+    # result = pd.DataFrame(
+    #     [[kmean_sse, dbs_sse, kmean_entropy, dbs_entropy, kmean_purity, dbs_purity]],
+    #     columns=[
+    #         "SSE for Kmeans",
+    #         "SSE for DBSCAN",
+    #         "Entropy for KMeans",
+    #         "Entropy for DBSCAN",
+    #         "Purity for KMeans",
+    #         "Purity for DBSCAN",
+    #     ],
+    # )
+    result = pd.DataFrame(
+        [[kmean_sse, dbs_sse, kmean_entropy, dbs_entropy, kmean_purity, dbs_purity]]
+    )
+    result.to_csv("Result.csv", header=False, index=False)
 
 
 if __name__ == "__main__":
