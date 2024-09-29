@@ -6,6 +6,7 @@ from sklearn.cluster import DBSCAN, KMeans
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from scipy.stats import variation
 
 
 def preprocess_data():
@@ -127,7 +128,12 @@ def extract_meal_features(meal_matrix):
         second_differential = np.mean(np.diff(np.diff(list(meal[:23]))))
         std = np.std(meal)
         mean = np.mean(meal)
-
+        gradient = np.mean(
+            np.gradient(meal[:23])
+        )
+        variance = np.var(meal[:23])
+        var = variation(meal[:23])
+        min_cgm = np.min(meal)
         features.append(
             [
                 time_diff,
@@ -170,7 +176,7 @@ def calc_dbscan_sse(meal_features, labels):
 
 
 def calc_entropy(truth_matrix):
-    num_clusters = truth_matrix.shape[1]
+    num_clusters = truth_matrix.shape[0]
     total_entropy = 0
     for i in range(num_clusters):
         # cluster_entropy = np.sum(-truth_matrix[:, i] * np.log2(truth_matrix[:, i]))
@@ -190,7 +196,7 @@ def calc_entropy(truth_matrix):
 
 def calc_purity(truth_matrix):
     total_purity = 0
-    num_clusters = truth_matrix.shape[1]
+    num_clusters = truth_matrix.shape[0]
     for i in range(num_clusters):
         num_datapoints = np.sum(truth_matrix[i])
         cluster_purity = np.max(truth_matrix[i] / num_datapoints)
@@ -231,36 +237,37 @@ def main():
     # plt.scatter(pca_features[:, 0], pca_features[:, 1], c=kmeans.labels_)
     # plt.scatter(pca_centers[:, 0], pca_centers[:, 1], color="red", marker="x")
     # plt.show()
-    scaled_features = StandardScaler().fit_transform(meal_features)
+
+    # scaled_features = StandardScaler().fit_transform(meal_features)
     # nn = NearestNeighbors(n_neighbors=2)
-    # nbrs = nn.fit(scaled_features)
-    # distances, indices = nbrs.kneighbors(scaled_features)
+    # nbrs = nn.fit(meal_features)
+    # distances, indices = nbrs.kneighbors(meal_features)
 
     # distances = np.sort(distances, axis=0)
     # distances = distances[:, 1]
     # plt.plot(distances)
     # plt.show()
 
-    # print(len(valid_meals_df))
-    # print(len(meal_matrix))
-
-    # eps_values = np.arange(10, 100, 5)  # Adjust this range based on data
-    # min_samples = 4  # Adjust this value based on data dimensionality
+    # eps_values = np.arange(20, 120, 5)
+    # min_samples = range(1,40)  
 
     # for eps in eps_values:
-    #     dbscan = DBSCAN(eps=eps, min_samples=min_samples).fit(meal_features)
-    #     n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
-    #     n_noise = list(dbscan.labels_).count(-1)
-    #     print(f"Eps: {eps}, Clusters: {n_clusters}, Noise Points: {n_noise}")
+    #     for samples in min_samples:
+    #         dbscan = DBSCAN(eps=eps, min_samples=samples).fit(meal_features)
+    #         n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
+    #         n_noise = list(dbscan.labels_).count(-1)
+    #         if n_clusters == 7:
+    #             print(f"Eps: {eps}, min_samples: {samples}, Clusters: {n_clusters}, Noise Points: {n_noise}")
 
-    dbscan = DBSCAN(eps=40, min_samples=6).fit(meal_features)
+    dbscan = DBSCAN(eps=40, min_samples=5).fit(meal_features)
     labels = dbscan.labels_
     dbs_truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, labels)
     dbs_sse = calc_dbscan_sse(meal_features, labels)
-    dbs_entropy = calc_entropy(dbs_truth_matrix)
-    dbs_purity = calc_purity(dbs_truth_matrix)
-    print(dbs_entropy)
-    print(dbs_purity)
+    # dbs_entropy = calc_entropy(dbs_truth_matrix)
+    # dbs_purity = calc_purity(dbs_truth_matrix)
+    # print(dbs_entropy)
+    # print(dbs_purity)
+
     # print("-1: ", np.sum(labels == -1))
     # print("0:  ", np.sum(labels == 0))
     # print("1:  ", np.sum(labels == 1))
@@ -271,23 +278,10 @@ def main():
     # print("6:  ", np.sum(labels == 6))
     # print(">6:  ", np.sum(labels > 8))
 
-    # print(dbscan.n_features_in_)
-    # print(dbscan.components_)
     # result = pd.DataFrame(
-    #     [[kmean_sse, dbs_sse, kmean_entropy, dbs_entropy, kmean_purity, dbs_purity]],
-    #     columns=[
-    #         "SSE for Kmeans",
-    #         "SSE for DBSCAN",
-    #         "Entropy for KMeans",
-    #         "Entropy for DBSCAN",
-    #         "Purity for KMeans",
-    #         "Purity for DBSCAN",
-    #     ],
+    #     [[kmean_sse, dbs_sse, kmean_entropy, dbs_entropy, kmean_purity, dbs_purity]]
     # )
-    result = pd.DataFrame(
-        [[kmean_sse, dbs_sse, kmean_entropy, dbs_entropy, kmean_purity, dbs_purity]]
-    )
-    result.to_csv("Result.csv", header=False, index=False)
+    # result.to_csv("Result.csv", header=False, index=False)
 
 
 if __name__ == "__main__":
