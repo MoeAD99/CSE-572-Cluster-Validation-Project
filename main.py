@@ -8,7 +8,8 @@ from sklearn.decomposition import PCA, KernelPCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-
+import warnings
+warnings.filterwarnings('ignore')
 def preprocess_data():
     cgm_df = pd.read_csv("CGMData.csv", low_memory=False)
     cgm_df["Datetime"] = pd.to_datetime(cgm_df["Date"] + " " + cgm_df["Time"])
@@ -134,7 +135,7 @@ def extract_meal_features(meal_matrix):
         second_peak_frequency = second_peak_index * sample_rate / len(meal)
         third_peak_frequency = third_peak_index * sample_rate / len(meal)
 
-        differential = np.mean(np.diff(list(meal[:23])))
+        differential = np.mean(np.diff(list(meal[max_cgm_after_meal_index:23])))
         second_differential = np.mean(np.diff(np.diff(list(meal[:23]))))
         std = np.std(meal)
         mean = np.mean(meal)
@@ -146,6 +147,9 @@ def extract_meal_features(meal_matrix):
 
         velocity = np.mean(np.gradient(cumsum))
         vel = max_cgm_after_meal - min_cgm
+        auc = np.trapz(meal)
+        rate_increase = np.max(np.diff(meal[max_cgm_after_meal_index:23])) if np.diff(meal[max_cgm_after_meal_index:23]).size != 0 else 0
+        rate_decrease = np.min(np.diff(meal[:max_cgm_after_meal_index])) if np.diff(meal[:max_cgm_after_meal_index]).size != 0 else 0
 
         features.append(
             [
@@ -155,8 +159,6 @@ def extract_meal_features(meal_matrix):
                 second_peak_frequency,
                 third_peak,
                 third_peak_frequency,
-                differential,
-                second_differential,
             ]
         )
     features = np.array(features)
@@ -234,6 +236,34 @@ def main():
     kmean_entropy = calc_entropy(km_truth_matrix)
     kmean_purity = calc_purity(km_truth_matrix)
 
+    n_init_arr = []
+    max_iter_arr = []
+    random_state_arr = []
+    n_init_range = range(10,100,10)
+    max_iter_range = [100, 200, 300,400,500]
+    random_state_range = [0,42,100,101]
+    kmean_entropy_arr = []
+    kmean_purity_arr = []
+    for n_init in n_init_range:
+        for max_iter in max_iter_range:
+            for random_state in random_state_range:
+                kmeans = KMeans(n_init=n_init, n_clusters=int(num_bins), max_iter=max_iter, random_state=random_state).fit(
+                    meal_features
+                )
+                km_truth = get_truth_matrix(int(num_bins), ground_truth_bins, kmeans.labels_)
+                kmean_entropy = calc_entropy(km_truth)
+                kmean_purity = calc_purity(km_truth)
+                kmean_entropy_arr.append(kmean_entropy)
+                kmean_purity_arr.append(kmean_purity)
+                n_init_arr.append(n_init)
+                max_iter_arr.append(max_iter)
+                random_state_arr.append(random_state)
+    kmean_entropy = np.array(kmean_entropy_arr)
+    kmean_purity = np.array(kmean_purity_arr)
+    min_entropy = np.min(kmean_entropy)
+    max_purity = np.max(kmean_purity)
+    print(f"kmean min entropy n_init: {n_init_arr[np.argmin(kmean_entropy)]}, max_iter: {max_iter_arr[np.argmin(kmean_entropy)]}, random_state: {random_state_arr[np.argmin(kmean_entropy)]}")
+    print(f"kmean max purity n_init: {n_init_arr[np.argmax(kmean_purity)]}, max_iter: {max_iter_arr[np.argmax(kmean_purity)]}, random_state: {random_state_arr[np.argmax(kmean_purity)]}")
     # print(kmean_entropy)
     # print(kmean_purity)
 
@@ -256,17 +286,35 @@ def main():
     plt.show()
 
     eps_values = np.arange(20, 100, 5)
-    min_samples = range(1, 40)
-
+    min_samples = range(1, 26)
+    kmean_entropy_arr = []
+    kmean_purity_arr = []
+    dbs_entropy_arr = []
+    dbs_purity_arr = []
+    eps_arr = []
+    samples_arr = []
     for eps in eps_values:
         for samples in min_samples:
             dbscan = DBSCAN(eps=eps, min_samples=samples).fit(meal_features)
             n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
             n_noise = list(dbscan.labels_).count(-1)
             if n_clusters == 7:
-                print(
-                    f"Eps: {eps}, min_samples: {samples}, Clusters: {n_clusters}, Noise Points: {n_noise}"
-                )
+                truth_matrix = get_truth_matrix(int(num_bins), ground_truth_bins, dbscan.labels_)
+                dbs_entropy = calc_entropy(truth_matrix)
+                dbs_purity = calc_purity(truth_matrix)
+                dbs_entropy_arr.append(dbs_entropy)
+                dbs_purity_arr.append(dbs_purity)
+                eps_arr.append(eps)
+                samples_arr.append(samples)
+                # print(
+                #     f"Eps: {eps}, min_samples: {samples}, Clusters: {n_clusters}, Noise Points: {n_noise}"
+                # )
+    dbs_entropy_arr = np.array(dbs_entropy_arr)
+    dbs_purity_arr = np.array(dbs_purity_arr)
+    min_entropy = (dbs_entropy_arr).argmin()
+    max_purity = (dbs_purity_arr).argmax()
+    print(f"min entropy Eps: {eps_arr[min_entropy]}, min entropy min_samples: {samples_arr[min_entropy]}")
+    print(f"max purity Eps: {eps_arr[max_purity]}, max purity min_samples: {samples_arr[max_purity]}")
 
     dbscan = DBSCAN(eps=40, min_samples=5).fit(meal_features)
     labels = dbscan.labels_
