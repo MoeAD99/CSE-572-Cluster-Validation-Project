@@ -2,11 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.fft import fft, rfft
+from scipy.stats import variation
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from scipy.stats import variation
 
 
 def preprocess_data():
@@ -70,10 +70,10 @@ def extract_meal_data(cgm_df, insulin_df):
         bins.append(cur_meal_bin)
     # print(len([i for i in bins if i == 6]))
     valid_meals_insulin_df["Bin"] = bins
-    # print(len(meal_cgm_stretch))
+    # print(meal_cgm_stretch)
 
     meals_with_complete_data = [
-        len(i) == 30 and not i["Sensor Glucose (mg/dL)"].hasnans
+        len(i) == 30 and np.sum((i["Sensor Glucose (mg/dL)"].isna())) < 4
         for i in meal_cgm_stretch
     ]
 
@@ -86,13 +86,20 @@ def extract_meal_data(cgm_df, insulin_df):
     meal_cgm_stretch = [
         i
         for i in meal_cgm_stretch
-        if len(i) == 30 and not i["Sensor Glucose (mg/dL)"].hasnans
+        if len(i) == 30 and np.sum((i["Sensor Glucose (mg/dL)"].isna())) < 4
     ]
-
+    # print(meal_cgm_stretch)
     meal_matrix = np.array(
-        [i["Sensor Glucose (mg/dL)"].to_numpy() for i in meal_cgm_stretch]
+        [
+            i["Sensor Glucose (mg/dL)"]
+            .interpolate(method="linear")
+            .fillna(method="ffill")
+            .fillna(method="bfill")
+            .to_numpy()
+            for i in meal_cgm_stretch
+        ]
     )
-    # print(valid_meals_df[:10])
+    print(meal_matrix)
     return num_bins, meal_matrix, cleaned_meals_df
 
 
@@ -109,7 +116,7 @@ def extract_meal_features(meal_matrix):
         meal_start_time = two_hour_stretch[23]
         max_cgm_after_meal_index = meal[:23].argmax()
         max_cgm_time = two_hour_stretch[max_cgm_after_meal_index]
-        time_diff = pd.Timedelta(max_cgm_time - meal_start_time).seconds / 60 / 60
+        time_diff = pd.Timedelta(max_cgm_time - meal_start_time).seconds
         time_to_max_cgm_from_meal_start.append(time_diff)
 
         max_cgm_after_meal = meal[max_cgm_after_meal_index]
@@ -123,31 +130,39 @@ def extract_meal_features(meal_matrix):
         second_peak_index = rfft_meal.index(second_peak)
         third_peak = rfft_meal_sorted[-3]
         third_peak_index = rfft_meal.index(third_peak)
+        sample_rate = 1 / 300
+        second_peak_frequency = second_peak_index * sample_rate / len(meal)
+        third_peak_frequency = third_peak_index * sample_rate / len(meal)
 
         differential = np.mean(np.diff(list(meal[:23])))
         second_differential = np.mean(np.diff(np.diff(list(meal[:23]))))
         std = np.std(meal)
         mean = np.mean(meal)
-        gradient = np.mean(
-            np.gradient(meal[:23])
-        )
+        gradient = np.mean(np.gradient(meal[:23]))
         variance = np.var(meal[:23])
         var = variation(meal[:23])
         min_cgm = np.min(meal)
+        cumsum = np.cumsum(meal)
+
+        velocity = np.mean(np.gradient(cumsum))
+        vel = max_cgm_after_meal - min_cgm
+
         features.append(
             [
                 time_diff,
                 diff_cgm_max_cgm_meal,
                 second_peak,
-                second_peak_index,
+                second_peak_frequency,
                 third_peak,
-                third_peak_index,
+                third_peak_frequency,
                 differential,
                 second_differential,
             ]
         )
-    # print(features[0])
-    return np.array(features)
+    features = np.array(features)
+    features[:, 0] = features[:, 0] / np.max(features[:, 0])
+
+    return features
 
 
 def get_truth_matrix(num_bins, ground_truth_bins, labels):
@@ -219,45 +234,39 @@ def main():
     kmean_entropy = calc_entropy(km_truth_matrix)
     kmean_purity = calc_purity(km_truth_matrix)
 
-    # print(ground_truth_bins)
-    # print(kmeans.labels_)
-    print(kmean_entropy)
-    print(kmean_purity)
-    # print(np.sum(km_truth_matrix))
-    # print(len(meal_features))
+    # print(kmean_entropy)
+    # print(kmean_purity)
 
-    # print(ground_truth_bins == kmeans.labels_)
-    # print(np.sum(kmeans.labels_ == 0))
-    # print(kmeans.cluster_centers_)
-    # print(kmeans.inertia_)
-    pca_features = KernelPCA(n_components=2).fit_transform(meal_features)
-    pca_centers = KernelPCA(n_components=2).fit_transform(kmeans.cluster_centers_)
+    # pca_features = KernelPCA(n_components=2).fit_transform(meal_features)
+    # pca_centers = KernelPCA(n_components=2).fit_transform(kmeans.cluster_centers_)
     # print(pca_centers)
     # plt.figure(figsize=(10, 8))
     # plt.scatter(pca_features[:, 0], pca_features[:, 1], c=kmeans.labels_)
     # plt.scatter(pca_centers[:, 0], pca_centers[:, 1], color="red", marker="x")
     # plt.show()
 
-    # scaled_features = StandardScaler().fit_transform(meal_features)
-    # nn = NearestNeighbors(n_neighbors=2)
-    # nbrs = nn.fit(meal_features)
-    # distances, indices = nbrs.kneighbors(meal_features)
+    scaled_features = StandardScaler().fit_transform(meal_features)
+    nn = NearestNeighbors(n_neighbors=2)
+    nbrs = nn.fit(meal_features)
+    distances, indices = nbrs.kneighbors(meal_features)
 
-    # distances = np.sort(distances, axis=0)
-    # distances = distances[:, 1]
-    # plt.plot(distances)
-    # plt.show()
+    distances = np.sort(distances, axis=0)
+    distances = distances[:, 1]
+    plt.plot(distances)
+    plt.show()
 
-    # eps_values = np.arange(20, 120, 5)
-    # min_samples = range(1,40)  
+    eps_values = np.arange(20, 100, 5)
+    min_samples = range(1, 40)
 
-    # for eps in eps_values:
-    #     for samples in min_samples:
-    #         dbscan = DBSCAN(eps=eps, min_samples=samples).fit(meal_features)
-    #         n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
-    #         n_noise = list(dbscan.labels_).count(-1)
-    #         if n_clusters == 7:
-    #             print(f"Eps: {eps}, min_samples: {samples}, Clusters: {n_clusters}, Noise Points: {n_noise}")
+    for eps in eps_values:
+        for samples in min_samples:
+            dbscan = DBSCAN(eps=eps, min_samples=samples).fit(meal_features)
+            n_clusters = len(set(dbscan.labels_)) - (1 if -1 in dbscan.labels_ else 0)
+            n_noise = list(dbscan.labels_).count(-1)
+            if n_clusters == 7:
+                print(
+                    f"Eps: {eps}, min_samples: {samples}, Clusters: {n_clusters}, Noise Points: {n_noise}"
+                )
 
     dbscan = DBSCAN(eps=40, min_samples=5).fit(meal_features)
     labels = dbscan.labels_
